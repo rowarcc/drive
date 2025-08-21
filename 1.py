@@ -1,171 +1,46 @@
-# %%
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
-
-def fit_damped_hw(train, test,
-                  seasonal_periods=12,
-                  trend='add',
-                  seasonal='add',
-                  damped=True):
-    """
-    Fit a damped Holt–Winters model on `train`, then forecast the same length as `test`.
-
-    Parameters
-    ----------
-    train : pd.Series
-        Training data, indexed by datetime.
-    test : pd.Series
-        Test/index series; its index (including future dates beyond available data)
-        determines the forecast horizon.
-
-    Returns
-    -------
-    forecast : pd.Series
-        The point forecasts, indexed the same as `test`.
-    ci_df : pd.DataFrame
-        A DataFrame with columns ['lower_80','upper_80','lower_95','upper_95'],
-        indexed the same as `test`.
-    """
-    # 1) Fit model
-    model = ExponentialSmoothing(
-        train,
-        trend=trend,
-        damped_trend=damped,
-        seasonal=seasonal,
-        seasonal_periods=seasonal_periods
-    )
-    fit = model.fit()
-
-    # 2) Forecast out for every period in `test`
-    h = len(test)
-    forecast = fit.forecast(h)
-    forecast.index = test.index
-
-    # 3) Estimate residual σ from training fit
-    resid = train - fit.fittedvalues
-    sigma = resid.std()
-
-    # 4) Compute standard errors: assume se_h = σ * sqrt(h_step)
-    h_steps = np.arange(1, h+1)
-    se = sigma * np.sqrt(h_steps)
-
-    # 5) Build 80% & 95% intervals
-    z80, z95 = 1.28155, 1.96
-    lower_80 = forecast - z80 * se
-    upper_80 = forecast + z80 * se
-    lower_95 = forecast - z95 * se
-    upper_95 = forecast + z95 * se
-
-    ci_df = pd.DataFrame({
-        'lower_80': lower_80,
-        'upper_80': upper_80,
-        'lower_95': lower_95,
-        'upper_95': upper_95
-    }, index=test.index)
-
-    return forecast, ci_df
+bec_file	service_date	insco	market	plan_id	plan_type	pcp_type	IP_ABE_INCURRED	IP_ABE_CLAIMS_LAG	IP_RESERVE	OP_ABE_INCURRED	OP_ABE_CLAIMS_LAG	OP_RESERVE	PRO_ABE_INCURRED	PRO_ABE_CLAIMS_LAG	PRO_RESERVE	Dental_ABE_INCURRED	Dental_ABE_CLAIMS_LAG	Dental_RESERVE	ID
+dental	2025-07-01	NULL	NULL	H2509-002	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	41177.28	12227	28950.28	3194
+fl	2022-10-01	MED	MIAMI	NULL	SNP	Employed	18155.44	18155.36	0.08	69997.36	69995.51	1.85	71363.13	71362.88	0.25	NULL	NULL	NULL	3205
 
 
-def plot_forecast(results_df, value_name):
-    """
-    Plot train, actual, forecast, and 80%/95% CIs.
-    
-    Parameters
-    ----------
-    results_df : pd.DataFrame
-        Must contain columns: ['train','actual','forecast',
-        'lower_80','upper_80','lower_95','upper_95'].
-    value_name : str
-        Name of the series (for axis label & title).
-    """
-    plt.figure(figsize=(10, 6))
-    # plot each
-    for col in ['train', 'actual', 'forecast']:
-        if col in results_df:
-            results_df[col].plot(label=col)
-    # fill intervals
-    plt.fill_between(results_df.index,
-                     results_df['lower_80'],
-                     results_df['upper_80'],
-                     alpha=0.3,
-                     label='80% CI')
-    plt.fill_between(results_df.index,
-                     results_df['lower_95'],
-                     results_df['upper_95'],
-                     alpha=0.2,
-                     label='95% CI')
 
-    plt.title(f'Damped Holt–Winters Forecast: {value_name}')
-    plt.xlabel('Date')
-    plt.ylabel(value_name)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+gmpi_Id	member_id	elig_month	insco	group_id	contract_id	pbp	plan_id	pcp_region	pcp_market	pcp_type	ika_clinic_code	ofl_flag	snp_flag
+702394470	4136972	202107	UGT	RTX	H1278	010	H1278-010	SWTX	VLY	Affiliated	VLYAFF	NULL	Non-SNP
+701485887	3465764	202107	UGT	RGV	H4527	013	H4527-013	SWTX	VLY	Affiliated	VLYAFF	NULL	Non-SNP
+676472055	5794986	202303	CST	ECS	H2228	041	H2228-041	SWTX	ELP	Employed	ELPWT	N	SNP
+676470663	2701897	202303	UGT	ENM	H2228	023	H2228-023	SWTX	ELP	Employed	ELPWT	N	Non-SNP
 
 
-def evaluate_forecast(actual, forecast):
-    """
-    Compute MAE, RMSE, MAPE on overlapping (non‐NaN) periods.
+DROP TABLE IF EXISTS #pmpm_output;
 
-    Metrics interpretation:
-      - MAE (mean absolute error): average size of errors—lower is better.
-      - RMSE (root mean squared error): penalizes large errors more heavily—lower is better.
-      - MAPE (mean absolute % error): error relative to magnitude. 
-         • <10% = highly accurate 
-         • 10–20% = good 
-         • 20–50% = reasonable
-    """
-    df = pd.concat([actual, forecast], axis=1).dropna()
-    df.columns = ['actual', 'forecast']
+SELECT t.ID,t.bec_file,t.service_date,t.insco,t.market,t.plan_id,t.plan_type,t.pcp_type
+		,CAST(SUM(t.IP_ABE_INCURRED) / COUNT(*) AS DECIMAL(18,2)) AS IP_INCURRED_PMPM
+		,CAST(SUM(t.IP_RESERVE) / COUNT(*) AS DECIMAL(18,2)) AS IP_RESERVE_PMPM
+		,CAST(SUM(t.OP_ABE_INCURRED) / COUNT(*) AS DECIMAL(18,2)) AS OP_ABE_INCURRED_PMPM
+		,CAST(SUM(t.OP_RESERVE) / COUNT(*) AS DECIMAL(18,2)) AS OP_RESERVE_PMPM
+		,CAST(SUM(t.PRO_ABE_INCURRED) / COUNT(*) AS DECIMAL(18,2)) AS PRO_ABE_INCURRED_PMPM
+		,CAST(SUM(t.PRO_RESERVE) / COUNT(*) AS DECIMAL(18,2)) AS PRO_RESERVE_PMPM
+		,CAST(SUM(t.Dental_ABE_INCURRED) / COUNT(*) AS DECIMAL(18,2)) AS Dental_ABE_INCURRED_PMPM
+		,CAST(SUM(t.Dental_RESERVE) / COUNT(*) AS DECIMAL(18,2)) AS Dental_RESERVE_PMPM
+INTO #pmpm_output
+FROM ##transform2 t
+JOIN ##elig e ON e.elig_month = LEFT(CONVERT(VARCHAR,t.service_date,112),6)
+WHERE (t.insco IS NULL OR e.insco = t.insco)
+	AND (t.market IS NULL OR e.pcp_market = t.market)
+	AND (t.plan_id IS NULL OR e.plan_id = t.plan_id)
+	AND (t.pcp_type IS NULL OR e.pcp_type = t.pcp_type)
+GROUP BY t.ID,t.bec_file,t.service_date,t.insco,t.market,t.plan_id,t.plan_type,t.pcp_type
 
-    mae  = np.mean(np.abs(df['actual'] - df['forecast']))
-    rmse = np.sqrt(np.mean((df['actual'] - df['forecast'])**2))
-    mape = np.mean(np.abs((df['actual'] - df['forecast']) / df['actual'])) * 100
 
-    return {'MAE': mae, 'RMSE': rmse, 'MAPE': mape}
+DROP TABLE IF EXISTS #output_table;
+SELECT t.ID, e.*
+INTO #output_table
+FROM ##elig e
+JOIN ##transform2 t ON e.elig_month = LEFT(CONVERT(VARCHAR,t.service_date,112),6)
+WHERE (t.insco IS NULL OR e.insco = t.insco)
+	AND (t.market IS NULL OR e.pcp_market = t.market)
+	AND (t.plan_id IS NULL OR e.plan_id = t.plan_id)
+	AND (t.pcp_type IS NULL OR e.pcp_type = t.pcp_type)
 
 
-if __name__ == '__main__':
-    # --- Load & prepare ---
-    df = pd.read_csv('data.txt', sep='|', parse_dates=['elig_month'])
-    df.set_index('elig_month', inplace=True)
-    df = df.asfreq('MS')               # ensure monthly start frequency
-    ts = df['raf_restate']
-
-    # --- Define train/test scenarios ---
-    # (train_end, test_start, test_end)
-    scenarios = [
-        ('2023-12', '2024-01', '2025-06'),   # long horizon (18 mo)
-        ('2024-05', '2024-06', '2025-06'),   # very short horizon (1 mo)
-        ('2025-02', '2025-03', '2025-12')    # medium horizon (10 mo; extends past data)
-    ]
-
-    for train_end, test_start, test_end in scenarios:
-        print(f'\nScenario: train → {train_end}, test {test_start} to {test_end}')
-        # slice train
-        train = ts[:train_end]
-        # build test index (even beyond available data)
-        test_idx = pd.date_range(start=test_start, end=test_end, freq='MS')
-        test    = ts.reindex(test_idx)
-
-        # 1) Model & forecast
-        forecast, ci = fit_damped_hw(train, test)
-
-        # 2) Combine for plotting
-        results = pd.concat([
-            train.rename('train'),
-            test.rename('actual'),
-            forecast.rename('forecast'),
-            ci
-        ], axis=1)
-
-        # 3) Plot
-        plot_forecast(results, 'raf_restate')
-
-        # 4) Evaluate
-        metrics = evaluate_forecast(results['actual'], results['forecast'])
-        print('Evaluation:')
-        for name, val in metrics.items():
-            print(f'  {name}: {val:.3f}')
+SELECT*FROM ##transform2 WHERE ID NOT IN (SELECT ID FROM #pmpm_output)
